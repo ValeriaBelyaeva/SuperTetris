@@ -1,0 +1,213 @@
+version: '3.8'
+
+services:
+  # C++ Physics Engine
+  cpp-physics:
+    build:
+      context: ./src/cpp_physics
+      dockerfile: Dockerfile
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      - LOG_LEVEL=INFO
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - tetris_network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tetris_network
+
+  # Python Game Server
+  python-server:
+    build:
+      context: ./src/python_server
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/tetris_analytics
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - tetris_network
+
+  # Python Game Logic
+  python-logic:
+    build:
+      context: .
+      dockerfile: ./src/python_logic/Dockerfile
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/tetris_analytics
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - cpp-physics
+      - postgres
+      - redis
+    networks:
+      - tetris_network
+
+  # TypeScript Client
+  typescript-client:
+    build:
+      context: ./src/typescript_client
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    environment:
+      - NODE_ENV=production
+      - API_URL=http://python-server:8000
+      - WS_URL=ws://python-server:8000/ws
+    depends_on:
+      - python-server
+    networks:
+      - tetris_network
+
+  # Python Analytics
+  python-analytics:
+    build:
+      context: ./src/python_analytics
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/tetris_analytics
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - tetris_network
+
+  # Python AI
+  python-ai:
+    build:
+      context: .
+      dockerfile: ./src/python_ai/Dockerfile
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./logs:/app/logs
+      - ./models:/app/models
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/tetris_analytics
+      - REDIS_URL=redis://redis:6379/0
+      - CUDA_VISIBLE_DEVICES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - tetris_network
+
+  # PostgreSQL
+  postgres:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=tetris_analytics
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tetris_network
+
+  # Python Development Tools
+  python-tools:
+    build:
+      context: ./src/python_tools
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/tetris_analytics
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/dev/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - tetris_network
+
+networks:
+  tetris_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
