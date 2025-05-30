@@ -4,7 +4,9 @@ FROM node:18 AS builder
 WORKDIR /app
 
 COPY package*.json ./
-
+# Генерируем package-lock.json из package.json
+RUN npm install --package-lock-only
+# Теперь CI установит ровно то, что в lock-файле
 RUN npm ci
 RUN npm install -g webpack-cli webpack-dev-server
 
