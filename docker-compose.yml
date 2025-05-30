@@ -120,7 +120,8 @@ services:
   typescript-client:
     build:
       context: ./src/typescript_client
-      dockerfile: ../../Dockerfile.client
+      dockerfile: Dockerfile
+    container_name: supertetris-client
     ports:
       - "5173:80"
     volumes:
