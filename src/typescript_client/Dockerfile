@@ -6,9 +6,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci        # ставим зависимости по lock-файлу
 
-COPY public ./public
-COPY src    ./src
-RUN npm run build             # выход → /app/dist
+# копируем все файлы проекта
+COPY . .
+RUN npm run build # выход → /app/dist
 
 # ---------- runtime ----------
 FROM nginx:stable-alpine
