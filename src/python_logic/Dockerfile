@@ -1,10 +1,8 @@
 # Dockerfile для Python игровой логики
 FROM python:3.11-slim
 
-WORKDIR /app/logic
-COPY ./src/python_logic/ /app/logic/
-
+WORKDIR /app
+COPY . .
 RUN pip install --no-cache-dir -r requirements.txt
-
-CMD ["python", "main.py"]
+CMD ["python", "-m", "python_logic.game_logic"] # Assuming game_logic.py is the entry
  
