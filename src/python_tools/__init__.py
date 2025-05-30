@@ -1,5 +1,5 @@
 """
-Python Development Tools for Tetris Project
+Development tools package
 """
 
 __version__ = "1.0.0"
