@@ -119,10 +119,10 @@ services:
   # TypeScript Client
   typescript-client:
     build:
-      context: ./src/typescript_client
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: Dockerfile.client
     ports:
-      - "3000:3000"
+      - "3000:80"
     volumes:
       - ./logs:/app/logs
       - ./data:/app/data
