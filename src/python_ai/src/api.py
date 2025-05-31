@@ -3,6 +3,7 @@ FastAPI service for AI system.
 """
 
 import logging
+from typing import Any, Dict
 from fastapi import FastAPI, HTTPException
 from .ai_system import AISystem
 from .models import GameState, Action
@@ -17,12 +18,12 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Tetris AI Service")
 ai_system = AISystem()
 
-@app.get("/health")
+@app.get("/health", response_model=None)
 async def health_check():
     """Health check endpoint."""
     return {"status": "ok"}
 
-@app.post("/players/{player_type}")
+@app.post("/players/{player_type}", response_model=None)
 async def create_player(player_type: str, difficulty: int, name: str = None):
     """Create a new AI player."""
     try:
@@ -32,27 +33,37 @@ async def create_player(player_type: str, difficulty: int, name: str = None):
         logger.error(f"Failed to create player: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/players/{player_name}/action")
-async def get_action(player_name: str, state: GameState):
+@app.post("/players/{player_name}/action", response_model=None)
+async def get_action(player_name: str, state: Dict[str, Any]):
     """Get the next action for a player."""
     try:
-        action = ai_system.get_action(player_name, state)
-        return {"status": "success", "action": action}
+        game_state = GameState(**state)  # Convert dict to GameState
+        action = ai_system.get_action(player_name, game_state)
+        return {"status": "success", "action": action.__dict__}
     except Exception as e:
         logger.error(f"Failed to get action: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/players/{player_name}/update")
-async def update_player(player_name: str, state: GameState, action: Action, reward: float, next_state: GameState):
+@app.post("/players/{player_name}/update", response_model=None)
+async def update_player(
+    player_name: str,
+    state: Dict[str, Any],
+    action: Dict[str, Any],
+    reward: float,
+    next_state: Dict[str, Any]
+):
     """Update a player's knowledge."""
     try:
-        ai_system.update(player_name, state, action, reward, next_state)
+        game_state = GameState(**state)
+        game_action = Action(**action)
+        next_game_state = GameState(**next_state)
+        ai_system.update(player_name, game_state, game_action, reward, next_game_state)
         return {"status": "success"}
     except Exception as e:
         logger.error(f"Failed to update player: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/players/{player_name}/train")
+@app.post("/players/{player_name}/train", response_model=None)
 async def train_player(player_name: str, epochs: int = 100, batch_size: int = 32):
     """Train a player using collected training data."""
     try:
@@ -62,7 +73,7 @@ async def train_player(player_name: str, epochs: int = 100, batch_size: int = 32
         logger.error(f"Failed to train player: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.get("/players/{player_name}")
+@app.get("/players/{player_name}", response_model=None)
 async def get_player(player_name: str):
     """Get player information."""
     player = ai_system.get_player(player_name)
@@ -70,7 +81,7 @@ async def get_player(player_name: str):
         raise HTTPException(status_code=404, detail=f"Player not found: {player_name}")
     return {"status": "success", "player": player.name}
 
-@app.delete("/players/{player_name}")
+@app.delete("/players/{player_name}", response_model=None)
 async def remove_player(player_name: str):
     """Remove a player."""
     try:

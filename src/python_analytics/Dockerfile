@@ -1,6 +1,10 @@
 FROM python:3.11-slim
 
-# Установить системные библиотеки и компилятор
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
+
+# Системные зависимости
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential \
@@ -9,7 +13,15 @@ RUN apt-get update && \
         libsnappy-dev \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-COPY . .
+# Устанавливаем Python-зависимости
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-CMD ["python", "-m", "python_analytics.main"] # Assuming main.py or similar entry point 
+
+# Копируем исходный код
+COPY . .
+
+# Открываем порт
+EXPOSE 8001
+
+# Запускаем FastAPI приложение
+CMD ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8001"] 

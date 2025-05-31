@@ -1,6 +1,26 @@
 FROM python:3.11-slim
 
 WORKDIR /app
-COPY . .
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
+
+# Системные зависимости
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        gcc \
+        g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Устанавливаем Python-зависимости
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-CMD ["python", "-m", "python_server.main"] # Assuming main.py or similar entry point 
+
+# Копируем исходный код
+COPY . .
+
+# Открываем порт
+EXPOSE 8000
+
+# Запускаем FastAPI приложение
+CMD ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"] 

@@ -139,28 +139,21 @@ services:
   python-ai:
     build:
       context: ./src/python_ai
-      dockerfile: Dockerfile
     image: supertetris-python-ai:latest
+    command: ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8002"]
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/tetris_analytics
+      - REDIS_URL=redis://redis:6379/0
+      - CUDA_VISIBLE_DEVICES=all
     ports:
       - "8002:8002"
     volumes:
       - ./logs:/app/logs
       - ./models:/app/models
       - ./data:/app/data
-    environment:
-      - PYTHONUNBUFFERED=1
-      - LOG_LEVEL=INFO
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/tetris_analytics
-      - REDIS_URL=redis://redis:6379/0
-      - CUDA_VISIBLE_DEVICES=all
-      - PYTHONPATH=/app
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
     depends_on:
       postgres:
         condition: service_healthy
