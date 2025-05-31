@@ -5,17 +5,21 @@ project(TetrisTowersPhysics)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Включаем vcpkg
+# Включаем vcpkg (если переменная VCPKG_ROOT установлена)
 if(DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
     set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
         CACHE STRING "")
 endif()
 
+# Находим необходимые пакеты
+find_package(httplib CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
+
 # Опции сборки
 option(BUILD_SHARED_LIBS "Build shared libraries" ON)
 option(BUILD_TESTS "Build tests" ON)
 
-# Включаем поддержку экспорта компиляционной базы данных для инструментов
+# Экспорт базы команд
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Флаги компиляции
@@ -25,30 +29,30 @@ else()
     add_compile_options(-Wall -Wextra -pedantic)
 endif()
 
-# Исходные файлы
+# Исходники и заголовки для physics_engine
 set(SOURCES
     PhysicsEngine.cpp
 )
-
-# Заголовочные файлы
 set(HEADERS
     include/PhysicsEngine.h
 )
 
-# Создание библиотеки
+# Библиотека physics_engine
 add_library(physics_engine ${SOURCES} ${HEADERS})
 target_include_directories(physics_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-# Создание исполняемого файла для тестирования
-add_executable(physics_engine_test main.cpp)
-target_link_libraries(physics_engine_test PRIVATE physics_engine)
+# Тестовый исполняемый
+if(BUILD_TESTS)
+    add_executable(physics_engine_test main.cpp)
+    target_link_libraries(physics_engine_test PRIVATE physics_engine)
+endif()
 
-# Создание серверного исполняемого файла
+# HTTP-серверная часть
 add_executable(physics_server server.cpp)
 target_link_libraries(physics_server PRIVATE physics_engine)
-target_link_libraries(physics_server PRIVATE cpp-httplib::cpp-httplib nlohmann_json::nlohmann_json)
+target_link_libraries(physics_server PRIVATE httplib::httplib nlohmann_json::nlohmann_json)
 
-# Установка
+# Установка (install)
 install(TARGETS physics_engine
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib

@@ -4,6 +4,7 @@ services:
     build:
       context: ./cpp-physics
       dockerfile: Dockerfile
+    image: supertetris-cpp-physics
     ports:
       - "9000:9000"
     volumes:
@@ -16,10 +17,9 @@ services:
       - COMPOSE_HTTP_TIMEOUT=1200
     command: ["/app/build/physics_server"]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: ["CMD", "curl", "-fs", "http://localhost:9000/health"]
+      interval: 10s
+      timeout: 3s
     deploy:
       resources:
         limits:
