@@ -1,4 +1,4 @@
-#include "include/PhysicsEngine.h"
+#include "PhysicsEngine.h"
 #include <httplib.h>
 #include <iostream>
 #include <thread>
@@ -13,7 +13,10 @@ int main() {
     
     // Initialize physics engine
     PhysicsEngine engine;
-    engine.initialize();
+    if (!engine.initialize()) {
+        std::cerr << "Failed to initialize physics engine" << std::endl;
+        return 1;
+    }
     
     // Create HTTP server
     httplib::Server svr;
@@ -25,13 +28,13 @@ int main() {
     
     // Get physics state
     svr.Get("/state", [&engine](const httplib::Request&, httplib::Response& res) {
-        std::string state = engine.exportStateToJson();
+        std::string state = engine.serializeToJson();
         res.set_content(state, "application/json");
     });
     
     // Update physics state
     svr.Post("/state", [&engine](const httplib::Request& req, httplib::Response& res) {
-        bool success = engine.importStateFromJson(req.body);
+        bool success = engine.deserializeFromJson(req.body);
         if (success) {
             res.set_content("{\"status\":\"success\"}", "application/json");
         } else {
@@ -42,7 +45,9 @@ int main() {
     
     // Start server in a separate thread
     std::thread server_thread([&svr]() {
-        svr.listen("0.0.0.0", 9000);
+        if (!svr.listen("0.0.0.0", 9000)) {
+            std::cerr << "Failed to start server" << std::endl;
+        }
     });
     
     // Main physics update loop

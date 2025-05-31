@@ -10,6 +10,8 @@
 #include <thread>
 #include <chrono>
 #include <cmath>
+#include <nlohmann/json.hpp>
+#include <iostream>
 
 namespace TetrisTowers {
 
@@ -211,119 +213,78 @@ public:
     PhysicsEngine();
     ~PhysicsEngine();
     
-    // Инициализация движка
+    // Core API
     bool initialize();
-    
-    // Завершение работы движка
     void shutdown();
-    
-    // Обновление физики
     void update(float deltaTime);
     
-    // Создание нового тела
+    // Simulation control
+    void startSimulation();
+    void stopSimulation();
+    void pauseSimulation();
+    bool isSimulationRunning() const { return m_isRunning; }
+    void setIterations(int iterations) { m_velocityIterations = iterations; }
+    int getIterations() const { return m_velocityIterations; }
+    
+    // Body management
     std::string createBody(const PhysicsBody& body);
-    
-    // Получение тела по ID
-    PhysicsBody* getBody(const std::string& id);
-    
-    // Удаление тела
     bool removeBody(const std::string& id);
+    PhysicsBody* getBody(const std::string& id);
+    std::vector<PhysicsBody*> getAllBodies();
+    std::vector<PhysicsBody*> getBodiesInArea(const Vector2& min, const Vector2& max);
+    bool isPointInBody(const std::string& bodyId, const Vector2& point);
+    int findClosestBody(const Vector2& point, float maxDistance);
     
-    // Создание тетромино заданного типа
-    Tetromino createTetromino(TetrominoType type, const Vector2& position, float rotation = 0.0f);
-    
-    // Применение силы к телу
+    // Physics operations
     void applyForce(const std::string& bodyId, const Vector2& force);
-    
-    // Применение импульса к телу
     void applyImpulse(const std::string& bodyId, const Vector2& impulse, const Vector2& contactPoint);
-    
-    // Установка гравитации
-    void setGravity(const Vector2& gravity);
-    
-    // Получение текущей гравитации
-    Vector2 getGravity() const;
-    
-    // Проверка стабильности башни
+    void applyExplosion(const Vector2& center, float radius, float force);
+    void applyWind(const Vector2& direction, float strength);
+    void applySpell(const std::string& spellType, const std::vector<std::string>& targetBlockIds);
+    bool checkCollision(const PhysicsBody& bodyA, const PhysicsBody& bodyB, Contact* contact = nullptr);
     bool checkTowerStability(const std::vector<std::string>& towerBlockIds);
     
-    // Регистрация колбэка для обработки коллизий
+    // Tetromino operations
+    Tetromino createTetromino(TetrominoType type, const Vector2& position, float rotation = 0.0f);
+    
+    // Environment control
+    void setGravity(const Vector2& gravity);
+    Vector2 getGravity() const;
+    
+    // Callback registration
     void registerCollisionCallback(std::function<void(const Contact&)> callback);
     
-    // Запуск/остановка симуляции
-    void startSimulation();
-    void pauseSimulation();
-    void stopSimulation();
-    
-    // Получение всех тел
-    std::vector<PhysicsBody*> getAllBodies();
-    
-    // Проверка пересечения двух тел
-    bool checkCollision(const PhysicsBody& bodyA, const PhysicsBody& bodyB, Contact* contact = nullptr);
-    
-    // Проверка, находится ли точка внутри тела
-    bool isPointInBody(const std::string& bodyId, const Vector2& point);
-    
-    // Получение тел в заданной области
-    std::vector<PhysicsBody*> getBodiesInArea(const Vector2& min, const Vector2& max);
-    
-    // Применение заклинания (изменение физических свойств блоков)
-    void applySpell(const std::string& spellType, const std::vector<std::string>& targetBlockIds);
-    
-    // Экспорт состояния физики в JSON
-    std::string exportStateToJson();
-    
-    // Импорт состояния физики из JSON
+    // Serialization
+    std::string exportStateToJson() const;
     bool importStateFromJson(const std::string& json);
+    std::string serializeToJson() const;
+    bool deserializeFromJson(const std::string& jsonStr);
     
 private:
-    // Внутренние методы
-    
-    // Обнаружение коллизий
+    // Internal methods
     void detectCollisions();
-    
-    // Разрешение коллизий
     void resolveCollisions();
-    
-    // Интеграция физики
     void integrate(float deltaTime);
-    
-    // Генерация уникального ID
     std::string generateUniqueId();
-    
-    // Проверка пересечения двух прямоугольников (AABB)
     bool checkAABBCollision(const PhysicsBody& bodyA, const PhysicsBody& bodyB);
-    
-    // Проверка пересечения двух ориентированных прямоугольников (OBB)
     bool checkOBBCollision(const PhysicsBody& bodyA, const PhysicsBody& bodyB, Contact* contact);
-    
-    // Разделяющая ось для OBB
     bool checkSeparatingAxis(const std::vector<Vector2>& verticesA, 
                             const std::vector<Vector2>& verticesB, 
                             const Vector2& axis, 
                             float& minOverlap,
                             Vector2& normal);
-    
-    // Поток симуляции
     void simulationThread();
     
-private:
-    // Данные движка
-    std::unordered_map<std::string, PhysicsBody> m_bodies;
+    // Data members
+    std::unordered_map<std::string, std::unique_ptr<PhysicsBody>> m_bodies;
     std::vector<Contact> m_contacts;
     Vector2 m_gravity;
-    
-    // Колбэк для обработки коллизий
     std::function<void(const Contact&)> m_collisionCallback;
-    
-    // Параметры симуляции
     float m_timeStep;
     int m_velocityIterations;
     int m_positionIterations;
-    
-    // Управление потоком симуляции
     std::thread m_simulationThread;
-    std::mutex m_mutex;
+    mutable std::mutex m_mutex;
     bool m_isRunning;
     bool m_isPaused;
 };

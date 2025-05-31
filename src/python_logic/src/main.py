@@ -1000,6 +1000,14 @@ class PhysicsEngine:
             class Vec2(ctypes.Structure):
                 _fields_ = [("x", ctypes.c_float), ("y", ctypes.c_float)]
             
+            class PhysicsMaterial_FFI(ctypes.Structure):
+                _fields_ = [
+                    ("density", ctypes.c_float),
+                    ("restitution", ctypes.c_float),
+                    ("friction", ctypes.c_float),
+                    ("isSensor", ctypes.c_int)
+                ]
+            
             class BlockInfo(ctypes.Structure):
                 _fields_ = [
                     ("id", ctypes.c_int),
@@ -1022,7 +1030,7 @@ class PhysicsEngine:
             
             # Загрузка библиотеки
             try:
-                self._lib = ctypes.CDLL("./libphysics.so")
+                self._lib = ctypes.CDLL("./libphysics_engine.so")
             except OSError:
                 # Попытка загрузить библиотеку из альтернативного пути
                 try:
@@ -1032,7 +1040,8 @@ class PhysicsEngine:
                     raise RuntimeError("Physics library not found")
             
             # Настройка типов возвращаемых значений
-            self._lib.init_physics.restype = ctypes.c_bool
+            self._lib.physics_engine_create.restype = ctypes.c_void_p
+            self._lib.physics_engine_destroy.argtypes = [ctypes.c_void_p]
             self._lib.create_block.restype = ctypes.c_int
             self._lib.remove_block.restype = ctypes.c_bool
             self._lib.get_block_info.restype = ctypes.POINTER(BlockInfo)
@@ -1040,7 +1049,9 @@ class PhysicsEngine:
             self._lib.get_collisions.restype = ctypes.POINTER(CollisionInfo)
             
             # Инициализация физического движка
-            if not self._lib.init_physics():
+            gravity = Vec2(0.0, GameConstants.GRAVITY)
+            self._engine = self._lib.physics_engine_create(gravity, 10)  # 10 iterations
+            if not self._engine:
                 raise RuntimeError("Failed to initialize physics engine")
             
             self._initialized = True
@@ -1054,9 +1065,10 @@ class PhysicsEngine:
     def __del__(self):
         """Очистка ресурсов при уничтожении объекта."""
         try:
-            if self._lib and self._initialized:
-                self._lib.cleanup_physics()
+            if self._lib and self._initialized and self._engine:
+                self._lib.physics_engine_destroy(self._engine)
                 self._initialized = False
+                self._engine = None
         except Exception as e:
             logger.error(f"Error during physics engine cleanup: {e}")
     
@@ -1066,7 +1078,7 @@ class PhysicsEngine:
             raise RuntimeError("Physics engine not initialized")
         
         try:
-            self._lib.step_physics(ctypes.c_float(dt))
+            self._lib.physics_engine_update(self._engine, ctypes.c_float(dt))
         except Exception as e:
             self._error_count += 1
             logger.error(f"Error during physics step: {e}")
@@ -1082,15 +1094,23 @@ class PhysicsEngine:
             raise ValueError("Block cannot be null")
         
         try:
-            block_id = self._lib.create_block(
-                ctypes.c_float(block.position.x),
-                ctypes.c_float(block.position.y),
+            position = Vec2(block.position.x, block.position.y)
+            size = Vec2(block.shape.width * GameConstants.BLOCK_SIZE, 
+                       block.shape.height * GameConstants.BLOCK_SIZE)
+            material = PhysicsMaterial_FFI(
+                density=block.density,
+                restitution=block.restitution,
+                friction=block.friction,
+                isSensor=0
+            )
+            
+            block_id = self._lib.physics_engine_create_block(
+                self._engine,
+                position,
+                size,
                 ctypes.c_float(block.angle),
-                ctypes.c_float(block.velocity.x),
-                ctypes.c_float(block.velocity.y),
-                ctypes.c_float(block.angular_velocity),
-                ctypes.c_bool(block.is_static),
-                ctypes.c_bool(block.is_active)
+                material,
+                ctypes.c_int(1 if block.is_static else 0)
             )
             
             if block_id < 0:
@@ -1115,7 +1135,7 @@ class PhysicsEngine:
             return False
         
         try:
-            result = self._lib.remove_block(ctypes.c_int(block_id))
+            result = self._lib.physics_engine_remove_block(self._engine, ctypes.c_int(block_id))
             if result:
                 self._block_count -= 1
             return result
@@ -1226,15 +1246,13 @@ class PhysicsEngine:
             return False
     
     def check_collision(self, block_a_id: int, block_b_id: int) -> bool:
-        """Проверка столкновения между блоками."""
+        """Проверка столкновения между двумя блоками."""
         if not self._initialized:
             raise RuntimeError("Physics engine not initialized")
         
-        if block_a_id < 0 or block_b_id < 0:
-            return False
-        
         try:
-            return self._lib.check_collision(
+            return self._lib.physics_engine_check_collision(
+                self._engine,
                 ctypes.c_int(block_a_id),
                 ctypes.c_int(block_b_id)
             )

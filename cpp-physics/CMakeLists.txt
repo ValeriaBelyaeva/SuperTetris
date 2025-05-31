@@ -11,8 +11,17 @@ if(DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
         CACHE STRING "")
 endif()
 
-# Находим необходимые пакеты
-find_package(httplib CONFIG REQUIRED)
+# Ищем header-only httplib.h (cpp-httplib)
+find_path(HTTPLIB_INCLUDE_DIR
+  NAMES httplib.h
+  PATHS /usr/local/include/httplib /usr/local/include /usr/include
+)
+if (NOT HTTPLIB_INCLUDE_DIR)
+  message(FATAL_ERROR "Could not find httplib.h (cpp-httplib). Make sure `/usr/local/include/httplib/httplib.h` exists.")
+endif()
+include_directories(${HTTPLIB_INCLUDE_DIR})
+
+# Находим nlohmann_json
 find_package(nlohmann_json CONFIG REQUIRED)
 
 # Опции сборки
@@ -32,9 +41,11 @@ endif()
 # Исходники и заголовки для physics_engine
 set(SOURCES
     PhysicsEngine.cpp
+    FFIInterface.cpp
 )
 set(HEADERS
     include/PhysicsEngine.h
+    include/FFIInterface.h
 )
 
 # Библиотека physics_engine
@@ -50,7 +61,7 @@ endif()
 # HTTP-серверная часть
 add_executable(physics_server server.cpp)
 target_link_libraries(physics_server PRIVATE physics_engine)
-target_link_libraries(physics_server PRIVATE httplib::httplib nlohmann_json::nlohmann_json)
+target_link_libraries(physics_server PRIVATE nlohmann_json::nlohmann_json)
 
 # Установка (install)
 install(TARGETS physics_engine

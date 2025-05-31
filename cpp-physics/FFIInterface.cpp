@@ -13,12 +13,12 @@ static CollisionCallback_FFI g_collisionCallback = nullptr;
 static std::mutex g_callbackMutex;
 
 // Обертка для обратного вызова коллизий
-void collisionCallbackWrapper(const ContactInfo& contact) {
+void collisionCallbackWrapper(const Contact& contact) {
     std::lock_guard<std::mutex> lock(g_callbackMutex);
     if (g_collisionCallback) {
         ContactInfo_FFI contactFFI;
-        contactFFI.blockIdA = contact.blockIdA;
-        contactFFI.blockIdB = contact.blockIdB;
+        contactFFI.blockIdA = std::stoi(contact.bodyA->id);
+        contactFFI.blockIdB = std::stoi(contact.bodyB->id);
         contactFFI.point.x = contact.point.x;
         contactFFI.point.y = contact.point.y;
         contactFFI.normal.x = contact.normal.x;
@@ -33,7 +33,10 @@ void collisionCallbackWrapper(const ContactInfo& contact) {
 
 void* physics_engine_create(Vector2_FFI gravity, int iterations) {
     Vector2 gravityVec(gravity.x, gravity.y);
-    return new PhysicsEngine(gravityVec, iterations);
+    auto engine = new PhysicsEngine();
+    engine->setGravity(gravityVec);
+    engine->setIterations(iterations);
+    return engine;
 }
 
 void physics_engine_destroy(void* engine) {
@@ -78,9 +81,9 @@ void physics_engine_set_collision_callback(void* engine, CollisionCallback_FFI c
         g_collisionCallback = callback;
         
         if (callback) {
-            static_cast<PhysicsEngine*>(engine)->setCollisionCallback(collisionCallbackWrapper);
+            static_cast<PhysicsEngine*>(engine)->registerCollisionCallback(collisionCallbackWrapper);
         } else {
-            static_cast<PhysicsEngine*>(engine)->setCollisionCallback(nullptr);
+            static_cast<PhysicsEngine*>(engine)->registerCollisionCallback(nullptr);
         }
     }
 }
@@ -93,7 +96,7 @@ void physics_engine_update(void* engine, float deltaTime) {
 
 void physics_engine_start_simulation(void* engine, float fixedTimeStep) {
     if (engine) {
-        static_cast<PhysicsEngine*>(engine)->startSimulation(fixedTimeStep);
+        static_cast<PhysicsEngine*>(engine)->startSimulation();
     }
 }
 
@@ -112,11 +115,20 @@ int physics_engine_is_simulation_running(void* engine) {
 
 int physics_engine_create_block(void* engine, Vector2_FFI position, Vector2_FFI size, float angle, PhysicsMaterial_FFI material, int isStatic) {
     if (engine) {
-        Vector2 posVec(position.x, position.y);
-        Vector2 sizeVec(size.x, size.y);
-        PhysicsMaterial mat(material.density, material.restitution, material.friction, material.isSensor != 0);
+        PhysicsBody body;
+        body.position = Vector2(position.x, position.y);
+        body.width = size.x;
+        body.height = size.y;
+        body.rotation = angle;
+        body.mass = material.density;
+        body.restitution = material.restitution;
+        body.friction = material.friction;
+        body.isStatic = isStatic != 0;
+        body.material = static_cast<MaterialType>(material.isSensor);
+        body.updateMassData();
         
-        return static_cast<PhysicsEngine*>(engine)->createBlock(posVec, sizeVec, angle, mat, isStatic != 0);
+        std::string id = static_cast<PhysicsEngine*>(engine)->createBody(body);
+        return std::stoi(id);
     }
     return -1;
 }
@@ -124,16 +136,22 @@ int physics_engine_create_block(void* engine, Vector2_FFI position, Vector2_FFI 
 int* physics_engine_create_tetris_block(void* engine, int type, Vector2_FFI position, float blockSize, float angle, PhysicsMaterial_FFI material, int* count) {
     if (engine && count) {
         Vector2 posVec(position.x, position.y);
-        PhysicsMaterial mat(material.density, material.restitution, material.friction, material.isSensor != 0);
+        Tetromino tetromino = static_cast<PhysicsEngine*>(engine)->createTetromino(
+            static_cast<TetrominoType>(type), posVec, angle);
         
-        std::vector<int> blockIds = static_cast<PhysicsEngine*>(engine)->createTetrisBlock(
-            static_cast<BlockType>(type), posVec, blockSize, angle, mat);
-        
-        *count = static_cast<int>(blockIds.size());
+        *count = static_cast<int>(tetromino.blocks.size());
         if (*count > 0) {
             int* result = new int[*count];
             for (int i = 0; i < *count; ++i) {
-                result[i] = blockIds[i];
+                PhysicsBody& block = tetromino.blocks[i];
+                block.mass = material.density;
+                block.restitution = material.restitution;
+                block.friction = material.friction;
+                block.material = static_cast<MaterialType>(material.isSensor);
+                block.updateMassData();
+                
+                std::string id = static_cast<PhysicsEngine*>(engine)->createBody(block);
+                result[i] = std::stoi(id);
             }
             return result;
         }
@@ -145,14 +163,18 @@ int* physics_engine_create_tetris_block(void* engine, int type, Vector2_FFI posi
 
 int physics_engine_remove_block(void* engine, int blockId) {
     if (engine) {
-        return static_cast<PhysicsEngine*>(engine)->removeBlock(blockId) ? 1 : 0;
+        return static_cast<PhysicsEngine*>(engine)->removeBody(std::to_string(blockId)) ? 1 : 0;
     }
     return 0;
 }
 
 int physics_engine_check_collision(void* engine, int blockIdA, int blockIdB) {
     if (engine) {
-        return static_cast<PhysicsEngine*>(engine)->checkCollision(blockIdA, blockIdB) ? 1 : 0;
+        PhysicsBody* bodyA = static_cast<PhysicsEngine*>(engine)->getBody(std::to_string(blockIdA));
+        PhysicsBody* bodyB = static_cast<PhysicsEngine*>(engine)->getBody(std::to_string(blockIdB));
+        if (bodyA && bodyB) {
+            return static_cast<PhysicsEngine*>(engine)->checkCollision(*bodyA, *bodyB) ? 1 : 0;
+        }
     }
     return 0;
 }
@@ -160,7 +182,7 @@ int physics_engine_check_collision(void* engine, int blockIdA, int blockIdB) {
 int physics_engine_is_point_in_block(void* engine, int blockId, Vector2_FFI point) {
     if (engine) {
         Vector2 pointVec(point.x, point.y);
-        return static_cast<PhysicsEngine*>(engine)->isPointInBlock(blockId, pointVec) ? 1 : 0;
+        return static_cast<PhysicsEngine*>(engine)->isPointInBody(std::to_string(blockId), pointVec) ? 1 : 0;
     }
     return 0;
 }
@@ -170,13 +192,13 @@ int* physics_engine_query_aabb(void* engine, Vector2_FFI lowerBound, Vector2_FFI
         Vector2 lbVec(lowerBound.x, lowerBound.y);
         Vector2 ubVec(upperBound.x, upperBound.y);
         
-        std::vector<int> blockIds = static_cast<PhysicsEngine*>(engine)->queryAABB(lbVec, ubVec);
+        std::vector<PhysicsBody*> bodies = static_cast<PhysicsEngine*>(engine)->getBodiesInArea(lbVec, ubVec);
         
-        *count = static_cast<int>(blockIds.size());
+        *count = static_cast<int>(bodies.size());
         if (*count > 0) {
             int* result = new int[*count];
             for (int i = 0; i < *count; ++i) {
-                result[i] = blockIds[i];
+                result[i] = std::stoi(bodies[i]->id);
             }
             return result;
         }
@@ -189,7 +211,7 @@ int* physics_engine_query_aabb(void* engine, Vector2_FFI lowerBound, Vector2_FFI
 int physics_engine_find_closest_block(void* engine, Vector2_FFI point, float maxDistance) {
     if (engine) {
         Vector2 pointVec(point.x, point.y);
-        return static_cast<PhysicsEngine*>(engine)->findClosestBlock(pointVec, maxDistance);
+        return static_cast<PhysicsEngine*>(engine)->findClosestBody(pointVec, maxDistance);
     }
     return -1;
 }
@@ -211,11 +233,10 @@ void physics_engine_apply_wind(void* engine, Vector2_FFI direction, float streng
 Vector2_FFI physics_block_get_position(void* engine, int blockId) {
     Vector2_FFI result = {0, 0};
     if (engine) {
-        PhysicsBlock* block = static_cast<PhysicsEngine*>(engine)->getBlock(blockId);
-        if (block) {
-            Vector2 pos = block->getPosition();
-            result.x = pos.x;
-            result.y = pos.y;
+        PhysicsBody* body = static_cast<PhysicsEngine*>(engine)->getBody(std::to_string(blockId));
+        if (body) {
+            result.x = body->position.x;
+            result.y = body->position.y;
         }
     }
     return result;
@@ -223,19 +244,18 @@ Vector2_FFI physics_block_get_position(void* engine, int blockId) {
 
 void physics_block_set_position(void* engine, int blockId, Vector2_FFI position) {
     if (engine) {
-        PhysicsBlock* block = static_cast<PhysicsEngine*>(engine)->getBlock(blockId);
-        if (block) {
-            Vector2 posVec(position.x, position.y);
-            block->setPosition(posVec);
+        PhysicsBody* body = static_cast<PhysicsEngine*>(engine)->getBody(std::to_string(blockId));
+        if (body) {
+            body->position = Vector2(position.x, position.y);
         }
     }
 }
 
 float physics_block_get_angle(void* engine, int blockId) {
     if (engine) {
-        PhysicsBlock* block = static_cast<PhysicsEngine*>(engine)->getBlock(blockId);
-        if (block) {
-            return block->getAngle();
+        PhysicsBody* body = static_cast<PhysicsEngine*>(engine)->getBody(std::to_string(blockId));
+        if (body) {
+            return body->rotation;
         }
     }
     return 0.0f;
@@ -243,9 +263,9 @@ float physics_block_get_angle(void* engine, int blockId) {
 
 void physics_block_set_angle(void* engine, int blockId, float angle) {
     if (engine) {
-        PhysicsBlock* block = static_cast<PhysicsEngine*>(engine)->getBlock(blockId);
-        if (block) {
-            block->setAngle(angle);
+        PhysicsBody* body = static_cast<PhysicsEngine*>(engine)->getBody(std::to_string(blockId));
+        if (body) {
+            body->rotation = angle;
         }
     }
 }
@@ -253,11 +273,10 @@ void physics_block_set_angle(void* engine, int blockId, float angle) {
 Vector2_FFI physics_block_get_linear_velocity(void* engine, int blockId) {
     Vector2_FFI result = {0, 0};
     if (engine) {
-        PhysicsBlock* block = static_cast<PhysicsEngine*>(engine)->getBlock(blockId);
-        if (block) {
-            Vector2 vel = block->getLinearVelocity();
-            result.x = vel.x;
-            result.y = vel.y;
+        PhysicsBody* body = static_cast<PhysicsEngine*>(engine)->getBody(std::to_string(blockId));
+        if (body) {
+            result.x = body->velocity.x;
+            result.y = body->velocity.y;
         }
     }
     return result;
@@ -265,19 +284,18 @@ Vector2_FFI physics_block_get_linear_velocity(void* engine, int blockId) {
 
 void physics_block_set_linear_velocity(void* engine, int blockId, Vector2_FFI velocity) {
     if (engine) {
-        PhysicsBlock* block = static_cast<PhysicsEngine*>(engine)->getBlock(blockId);
-        if (block) {
-            Vector2 velVec(velocity.x, velocity.y);
-            block->setLinearVelocity(velVec);
+        PhysicsBody* body = static_cast<PhysicsEngine*>(engine)->getBody(std::to_string(blockId));
+        if (body) {
+            body->velocity = Vector2(velocity.x, velocity.y);
         }
     }
 }
 
 float physics_block_get_angular_velocity(void* engine, int blockId) {
     if (engine) {
-        PhysicsBlock* block = static_cast<PhysicsEngine*>(engine)->getBlock(blockId);
-        if (block) {
-            return block->getAngularVelocity();
+        PhysicsBody* body = static_cast<PhysicsEngine*>(engine)->getBody(std::to_string(blockId));
+        if (body) {
+            return body->angularVelocity;
         }
     }
     return 0.0f;
@@ -285,40 +303,40 @@ float physics_block_get_angular_velocity(void* engine, int blockId) {
 
 void physics_block_set_angular_velocity(void* engine, int blockId, float velocity) {
     if (engine) {
-        PhysicsBlock* block = static_cast<PhysicsEngine*>(engine)->getBlock(blockId);
-        if (block) {
-            block->setAngularVelocity(velocity);
+        PhysicsBody* body = static_cast<PhysicsEngine*>(engine)->getBody(std::to_string(blockId));
+        if (body) {
+            body->angularVelocity = velocity;
         }
     }
 }
 
 void physics_block_apply_force(void* engine, int blockId, Vector2_FFI force, Vector2_FFI point) {
     if (engine) {
-        PhysicsBlock* block = static_cast<PhysicsEngine*>(engine)->getBlock(blockId);
-        if (block) {
+        PhysicsBody* body = static_cast<PhysicsEngine*>(engine)->getBody(std::to_string(blockId));
+        if (body) {
             Vector2 forceVec(force.x, force.y);
             Vector2 pointVec(point.x, point.y);
-            block->applyForce(forceVec, pointVec);
+            body->applyForce(forceVec);
         }
     }
 }
 
 void physics_block_apply_impulse(void* engine, int blockId, Vector2_FFI impulse, Vector2_FFI point) {
     if (engine) {
-        PhysicsBlock* block = static_cast<PhysicsEngine*>(engine)->getBlock(blockId);
-        if (block) {
+        PhysicsBody* body = static_cast<PhysicsEngine*>(engine)->getBody(std::to_string(blockId));
+        if (body) {
             Vector2 impulseVec(impulse.x, impulse.y);
             Vector2 pointVec(point.x, point.y);
-            block->applyImpulse(impulseVec, pointVec);
+            body->applyImpulse(impulseVec, pointVec);
         }
     }
 }
 
 void physics_block_apply_torque(void* engine, int blockId, float torque) {
     if (engine) {
-        PhysicsBlock* block = static_cast<PhysicsEngine*>(engine)->getBlock(blockId);
-        if (block) {
-            block->applyTorque(torque);
+        PhysicsBody* body = static_cast<PhysicsEngine*>(engine)->getBody(std::to_string(blockId));
+        if (body) {
+            body->torque = torque;
         }
     }
 }
@@ -326,11 +344,10 @@ void physics_block_apply_torque(void* engine, int blockId, float torque) {
 Vector2_FFI physics_block_get_size(void* engine, int blockId) {
     Vector2_FFI result = {0, 0};
     if (engine) {
-        PhysicsBlock* block = static_cast<PhysicsEngine*>(engine)->getBlock(blockId);
-        if (block) {
-            Vector2 size = block->getSize();
-            result.x = size.x;
-            result.y = size.y;
+        PhysicsBody* body = static_cast<PhysicsEngine*>(engine)->getBody(std::to_string(blockId));
+        if (body) {
+            result.x = body->width;
+            result.y = body->height;
         }
     }
     return result;
@@ -338,9 +355,9 @@ Vector2_FFI physics_block_get_size(void* engine, int blockId) {
 
 float physics_block_get_mass(void* engine, int blockId) {
     if (engine) {
-        PhysicsBlock* block = static_cast<PhysicsEngine*>(engine)->getBlock(blockId);
-        if (block) {
-            return block->getMass();
+        PhysicsBody* body = static_cast<PhysicsEngine*>(engine)->getBody(std::to_string(blockId));
+        if (body) {
+            return body->mass;
         }
     }
     return 0.0f;
@@ -348,9 +365,9 @@ float physics_block_get_mass(void* engine, int blockId) {
 
 float physics_block_get_inertia(void* engine, int blockId) {
     if (engine) {
-        PhysicsBlock* block = static_cast<PhysicsEngine*>(engine)->getBlock(blockId);
-        if (block) {
-            return block->getInertia();
+        PhysicsBody* body = static_cast<PhysicsEngine*>(engine)->getBody(std::to_string(blockId));
+        if (body) {
+            return body->inertia;
         }
     }
     return 0.0f;
@@ -358,9 +375,9 @@ float physics_block_get_inertia(void* engine, int blockId) {
 
 int physics_block_is_static(void* engine, int blockId) {
     if (engine) {
-        PhysicsBlock* block = static_cast<PhysicsEngine*>(engine)->getBlock(blockId);
-        if (block) {
-            return block->isStatic() ? 1 : 0;
+        PhysicsBody* body = static_cast<PhysicsEngine*>(engine)->getBody(std::to_string(blockId));
+        if (body) {
+            return body->isStatic ? 1 : 0;
         }
     }
     return 0;
@@ -368,23 +385,23 @@ int physics_block_is_static(void* engine, int blockId) {
 
 void physics_block_set_static(void* engine, int blockId, int isStatic) {
     if (engine) {
-        PhysicsBlock* block = static_cast<PhysicsEngine*>(engine)->getBlock(blockId);
-        if (block) {
-            block->setStatic(isStatic != 0);
+        PhysicsBody* body = static_cast<PhysicsEngine*>(engine)->getBody(std::to_string(blockId));
+        if (body) {
+            body->isStatic = isStatic != 0;
+            body->updateMassData();
         }
     }
 }
 
 PhysicsMaterial_FFI physics_block_get_material(void* engine, int blockId) {
-    PhysicsMaterial_FFI result = {1.0f, 0.1f, 0.3f, 0};
+    PhysicsMaterial_FFI result = {0, 0, 0, 0};
     if (engine) {
-        PhysicsBlock* block = static_cast<PhysicsEngine*>(engine)->getBlock(blockId);
-        if (block) {
-            PhysicsMaterial mat = block->getMaterial();
-            result.density = mat.density;
-            result.restitution = mat.restitution;
-            result.friction = mat.friction;
-            result.isSensor = mat.isSensor ? 1 : 0;
+        PhysicsBody* body = static_cast<PhysicsEngine*>(engine)->getBody(std::to_string(blockId));
+        if (body) {
+            result.density = body->mass;
+            result.restitution = body->restitution;
+            result.friction = body->friction;
+            result.isSensor = static_cast<int>(body->material);
         }
     }
     return result;
@@ -392,19 +409,22 @@ PhysicsMaterial_FFI physics_block_get_material(void* engine, int blockId) {
 
 void physics_block_set_material(void* engine, int blockId, PhysicsMaterial_FFI material) {
     if (engine) {
-        PhysicsBlock* block = static_cast<PhysicsEngine*>(engine)->getBlock(blockId);
-        if (block) {
-            PhysicsMaterial mat(material.density, material.restitution, material.friction, material.isSensor != 0);
-            block->setMaterial(mat);
+        PhysicsBody* body = static_cast<PhysicsEngine*>(engine)->getBody(std::to_string(blockId));
+        if (body) {
+            body->mass = material.density;
+            body->restitution = material.restitution;
+            body->friction = material.friction;
+            body->material = static_cast<MaterialType>(material.isSensor);
+            body->updateMassData();
         }
     }
 }
 
 int physics_block_is_active(void* engine, int blockId) {
     if (engine) {
-        PhysicsBlock* block = static_cast<PhysicsEngine*>(engine)->getBlock(blockId);
-        if (block) {
-            return block->isActive() ? 1 : 0;
+        PhysicsBody* body = static_cast<PhysicsEngine*>(engine)->getBody(std::to_string(blockId));
+        if (body) {
+            return body->isActive ? 1 : 0;
         }
     }
     return 0;
@@ -412,9 +432,9 @@ int physics_block_is_active(void* engine, int blockId) {
 
 void physics_block_set_active(void* engine, int blockId, int isActive) {
     if (engine) {
-        PhysicsBlock* block = static_cast<PhysicsEngine*>(engine)->getBlock(blockId);
-        if (block) {
-            block->setActive(isActive != 0);
+        PhysicsBody* body = static_cast<PhysicsEngine*>(engine)->getBody(std::to_string(blockId));
+        if (body) {
+            body->isActive = isActive != 0;
         }
     }
 }
@@ -427,7 +447,9 @@ const char* physics_engine_serialize_to_json(void* engine) {
     if (engine) {
         std::lock_guard<std::mutex> lock(g_jsonMutex);
         g_lastJsonString = static_cast<PhysicsEngine*>(engine)->serializeToJson();
-        return g_lastJsonString.c_str();
+        char* result = new char[g_lastJsonString.length() + 1];
+        std::strcpy(result, g_lastJsonString.c_str());
+        return result;
     }
     return nullptr;
 }
@@ -440,8 +462,9 @@ int physics_engine_deserialize_from_json(void* engine, const char* json) {
 }
 
 void physics_free_string(const char* str) {
-    // Строки хранятся в глобальной переменной, поэтому не требуют освобождения
-    // Эта функция предоставляется для совместимости с другими языками
+    if (str) {
+        delete[] str;
+    }
 }
 
 void physics_free_int_array(int* array) {
