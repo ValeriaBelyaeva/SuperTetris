@@ -46,8 +46,9 @@ int main() {
     });
     
     // Main physics update loop
+    constexpr float fixedDelta = 1.0f / 60.0f; // Fixed time step of 1/60 second
     while (true) {
-        engine.update();
+        engine.update(fixedDelta);
         std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60 FPS
     }
     

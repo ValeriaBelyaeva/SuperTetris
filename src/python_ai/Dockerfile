@@ -1,17 +1,23 @@
-# syntax=docker/dockerfile:1.4
+# syntax=docker/dockerfile:1
+
 FROM python:3.11-slim
 
-# Install system dependencies and build tools
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        build-essential \
-        gcc \
-        g++ \
-        libsnappy-dev \
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app/ai
-COPY requirements.txt .
+WORKDIR /app
+
+# Copy requirements and install dependencies
+COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the entire project structure
 COPY . .
-CMD ["python", "main.py"]
+
+# Set PYTHONPATH to include the app directory
+ENV PYTHONPATH=/app
+
+# Run the FastAPI service with uvicorn
+CMD ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8002"]

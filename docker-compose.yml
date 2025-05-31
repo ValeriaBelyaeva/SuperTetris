@@ -4,27 +4,18 @@ services:
     build:
       context: ./cpp-physics
       dockerfile: Dockerfile
-    image: supertetris-cpp-physics
+    image: supertetris-cpp-physics:latest
     ports:
       - "9000:9000"
     volumes:
-      - ./cpp-physics/build:/app/build
       - ./logs:/app/logs
     environment:
       - LOG_LEVEL=INFO
       - PYTHONUNBUFFERED=1
-      - DOCKER_CLIENT_TIMEOUT=1200
-      - COMPOSE_HTTP_TIMEOUT=1200
-    command: ["/app/build/physics_server"]
     healthcheck:
       test: ["CMD", "curl", "-fs", "http://localhost:9000/health"]
       interval: 10s
       timeout: 3s
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 1G
     networks:
       - tetris_network
     restart: unless-stopped
@@ -47,11 +38,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
     networks:
       - tetris_network
 
@@ -60,6 +46,7 @@ services:
     build:
       context: ./src/python_server
       dockerfile: Dockerfile
+    image: supertetris-python-server:latest
     ports:
       - "8000:8000"
     volumes:
@@ -70,8 +57,6 @@ services:
       - LOG_LEVEL=INFO
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/tetris_analytics
       - REDIS_URL=redis://redis:6379/0
-      - DOCKER_CLIENT_TIMEOUT=1200
-      - COMPOSE_HTTP_TIMEOUT=1200
     depends_on:
       postgres:
         condition: service_healthy
@@ -82,11 +67,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 1G
     networks:
       - tetris_network
 
@@ -95,6 +75,7 @@ services:
     build:
       context: ./src/python_logic
       dockerfile: Dockerfile
+    image: supertetris-python-logic:latest
     volumes:
       - ./logs:/app/logs
       - ./data:/app/data
@@ -103,17 +84,10 @@ services:
       - LOG_LEVEL=INFO
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/tetris_analytics
       - REDIS_URL=redis://redis:6379/0
-      - DOCKER_CLIENT_TIMEOUT=1200
-      - COMPOSE_HTTP_TIMEOUT=1200
     depends_on:
       - cpp-physics
       - postgres
       - redis
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 1G
     networks:
       - tetris_network
 
@@ -122,7 +96,7 @@ services:
     build:
       context: ./src/typescript_client
       dockerfile: Dockerfile
-    container_name: supertetris-client
+    image: supertetris-client:latest
     ports:
       - "5173:80"
     volumes:
@@ -132,15 +106,8 @@ services:
       - NODE_ENV=production
       - API_URL=http://python-server:8000
       - WS_URL=ws://python-server:8000/ws
-      - DOCKER_CLIENT_TIMEOUT=1200
-      - COMPOSE_HTTP_TIMEOUT=1200
     depends_on:
       - python-server
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 1G
     networks:
       - tetris_network
 
@@ -149,6 +116,7 @@ services:
     build:
       context: ./src/python_analytics
       dockerfile: Dockerfile
+    image: supertetris-python-analytics:latest
     ports:
       - "8001:8001"
     volumes:
@@ -159,18 +127,11 @@ services:
       - LOG_LEVEL=INFO
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/tetris_analytics
       - REDIS_URL=redis://redis:6379/0
-      - DOCKER_CLIENT_TIMEOUT=1200
-      - COMPOSE_HTTP_TIMEOUT=1200
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 1G
     networks:
       - tetris_network
 
@@ -179,6 +140,7 @@ services:
     build:
       context: ./src/python_ai
       dockerfile: Dockerfile
+    image: supertetris-python-ai:latest
     ports:
       - "8002:8002"
     volumes:
@@ -191,8 +153,7 @@ services:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/tetris_analytics
       - REDIS_URL=redis://redis:6379/0
       - CUDA_VISIBLE_DEVICES=all
-      - DOCKER_CLIENT_TIMEOUT=1200
-      - COMPOSE_HTTP_TIMEOUT=1200
+      - PYTHONPATH=/app
     deploy:
       resources:
         reservations:
@@ -228,11 +189,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 1G
     networks:
       - tetris_network
 
@@ -241,6 +197,7 @@ services:
     build:
       context: ./src/python_tools
       dockerfile: Dockerfile
+    image: supertetris-python-tools:latest
     ports:
       - "8080:8080"
     volumes:
@@ -251,8 +208,6 @@ services:
       - LOG_LEVEL=INFO
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/tetris_analytics
       - REDIS_URL=redis://redis:6379/0
-      - DOCKER_CLIENT_TIMEOUT=1200
-      - COMPOSE_HTTP_TIMEOUT=1200
     depends_on:
       postgres:
         condition: service_healthy
@@ -263,11 +218,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
     networks:
       - tetris_network
 

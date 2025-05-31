@@ -37,31 +37,31 @@ RUN mkdir -p build && cd build && \
 #
 # 2) Этап исполнения (runtime)
 #
-FROM debian:bookworm-slim
+FROM gcc:13
+
 WORKDIR /app
 
-# Устанавливаем только рантайм-библиотеки
+# Нам достаточно curl только для healthcheck, libstdc++ уже есть в gcc:13
 RUN apt-get update && apt-get install -y \
-      libstdc++6 \
-      curl \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Копируем скомпилированные бинарники и shared-библиотеку
-COPY --from=builder /app/build/physics_server     /usr/local/bin/physics_server
+# Копируем собранный сервер и библиотеку в /usr/local
+COPY --from=builder /app/build/physics_server /usr/local/bin/
 COPY --from=builder /app/build/libphysics_engine.so /usr/local/lib/
 
-# Обновляем кэш shared-библиотек
+# Обновляем кэш динамических библиотек (libstdc++.so.6 уже подходящей версии)
 RUN ldconfig
 
-# Переменная для поиска .so (если потребуется)
+# Учтём, что libphysics_engine.so лежит в /usr/local/lib, чтобы программa её нашла
 ENV LD_LIBRARY_PATH=/usr/local/lib
 
-# Открываем порт сервера
+# Открываем порт того самого HTTP-сервера
 EXPOSE 9000
 
-# Healthcheck — проверка на "/health"
+# Healthcheck: проверяем «/health» каждый 10 секунд, таймаут 3 секунды
 HEALTHCHECK --interval=10s --timeout=3s \
-  CMD curl -fs http://localhost:9000/health || exit 1
+    CMD curl -fs http://localhost:9000/health || exit 1
 
-# Запуск сервера
+# Запускаем наш physics_server (он уже подрос до /usr/local/bin/)
 CMD ["/usr/local/bin/physics_server"]
