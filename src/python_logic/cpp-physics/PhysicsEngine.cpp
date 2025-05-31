@@ -4,6 +4,7 @@
 #include <sstream>
 #include <iomanip>
 #include <chrono>
+#include <nlohmann/json.hpp>
 
 namespace TetrisTowers {
 
@@ -62,7 +63,7 @@ std::string PhysicsEngine::createBody(const PhysicsBody& body) {
     newBody.id = id;
     
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_bodies[id] = newBody;
+    m_bodies[id] = std::make_unique<PhysicsBody>(newBody);
     return id;
 }
 
@@ -71,7 +72,7 @@ PhysicsBody* PhysicsEngine::getBody(const std::string& id) {
     std::lock_guard<std::mutex> lock(m_mutex);
     auto it = m_bodies.find(id);
     if (it != m_bodies.end()) {
-        return &it->second;
+        return it->second.get();
     }
     return nullptr;
 }
@@ -203,7 +204,7 @@ void PhysicsEngine::applyForce(const std::string& bodyId, const Vector2& force) 
     std::lock_guard<std::mutex> lock(m_mutex);
     auto it = m_bodies.find(bodyId);
     if (it != m_bodies.end()) {
-        it->second.applyForce(force);
+        it->second->applyForce(force);
     }
 }
 
@@ -212,7 +213,7 @@ void PhysicsEngine::applyImpulse(const std::string& bodyId, const Vector2& impul
     std::lock_guard<std::mutex> lock(m_mutex);
     auto it = m_bodies.find(bodyId);
     if (it != m_bodies.end()) {
-        it->second.applyImpulse(impulse, contactPoint);
+        it->second->applyImpulse(impulse, contactPoint);
     }
 }
 
@@ -231,24 +232,20 @@ Vector2 PhysicsEngine::getGravity() const {
 bool PhysicsEngine::checkTowerStability(const std::vector<std::string>& towerBlockIds) {
     std::lock_guard<std::mutex> lock(m_mutex);
     
-    // Если башня пустая, считаем её стабильной
     if (towerBlockIds.empty()) {
         return true;
     }
     
-    // Проверяем, что все блоки существуют
     std::vector<PhysicsBody*> towerBlocks;
     for (const auto& id : towerBlockIds) {
         auto it = m_bodies.find(id);
         if (it != m_bodies.end()) {
-            towerBlocks.push_back(&it->second);
+            towerBlocks.push_back(it->second.get());
         } else {
-            // Если какой-то блок не найден, считаем башню нестабильной
             return false;
         }
     }
     
-    // Проверка стабильности по скорости блоков
     const float velocityThreshold = 0.1f;
     const float angularVelocityThreshold = 0.1f;
     
@@ -259,8 +256,6 @@ bool PhysicsEngine::checkTowerStability(const std::vector<std::string>& towerBlo
         }
     }
     
-    // Проверка стабильности по положению центра масс
-    // Находим самый нижний блок
     PhysicsBody* lowestBlock = nullptr;
     float lowestY = std::numeric_limits<float>::max();
     
@@ -275,7 +270,6 @@ bool PhysicsEngine::checkTowerStability(const std::vector<std::string>& towerBlo
         return false;
     }
     
-    // Вычисляем центр масс башни
     Vector2 centerOfMass(0.0f, 0.0f);
     float totalMass = 0.0f;
     
@@ -288,7 +282,6 @@ bool PhysicsEngine::checkTowerStability(const std::vector<std::string>& towerBlo
         centerOfMass = centerOfMass * (1.0f / totalMass);
     }
     
-    // Проверяем, что центр масс находится над основанием нижнего блока
     float baseLeft = lowestBlock->position.x - lowestBlock->width / 2.0f;
     float baseRight = lowestBlock->position.x + lowestBlock->width / 2.0f;
     
@@ -303,15 +296,7 @@ void PhysicsEngine::registerCollisionCallback(std::function<void(const Contact&)
 
 // Запуск симуляции
 void PhysicsEngine::startSimulation() {
-    if (m_isRunning) {
-        return;
-    }
-    
     m_isRunning = true;
-    m_isPaused = false;
-    
-    // Запуск потока симуляции
-    m_simulationThread = std::thread(&PhysicsEngine::simulationThread, this);
 }
 
 // Пауза симуляции
@@ -321,16 +306,7 @@ void PhysicsEngine::pauseSimulation() {
 
 // Остановка симуляции
 void PhysicsEngine::stopSimulation() {
-    if (!m_isRunning) {
-        return;
-    }
-    
     m_isRunning = false;
-    
-    // Ожидание завершения потока симуляции
-    if (m_simulationThread.joinable()) {
-        m_simulationThread.join();
-    }
 }
 
 // Получение всех тел
@@ -340,7 +316,7 @@ std::vector<PhysicsBody*> PhysicsEngine::getAllBodies() {
     bodies.reserve(m_bodies.size());
     
     for (auto& pair : m_bodies) {
-        bodies.push_back(&pair.second);
+        bodies.push_back(pair.second.get());
     }
     
     return bodies;
@@ -359,12 +335,18 @@ bool PhysicsEngine::checkCollision(const PhysicsBody& bodyA, const PhysicsBody& 
 
 // Проверка, находится ли точка внутри тела
 bool PhysicsEngine::isPointInBody(const std::string& bodyId, const Vector2& point) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    auto it = m_bodies.find(bodyId);
-    if (it != m_bodies.end()) {
-        return it->second.containsPoint(point);
-    }
-    return false;
+    PhysicsBody* body = getBody(bodyId);
+    if (!body) return false;
+    
+    // Преобразование точки в локальные координаты тела
+    float cosA = std::cos(-body->rotation);
+    float sinA = std::sin(-body->rotation);
+    
+    Vector2 localPoint;
+    localPoint.x = cosA * (point.x - body->position.x) - sinA * (point.y - body->position.y);
+    localPoint.y = sinA * (point.x - body->position.x) + cosA * (point.y - body->position.y);
+    
+    return body->containsPoint(localPoint);
 }
 
 // Получение тел в заданной области
@@ -373,23 +355,19 @@ std::vector<PhysicsBody*> PhysicsEngine::getBodiesInArea(const Vector2& min, con
     std::vector<PhysicsBody*> result;
     
     for (auto& pair : m_bodies) {
-        PhysicsBody& body = pair.second;
+        PhysicsBody* body = pair.second.get();
         
-        // Проверяем, находится ли тело в заданной области
-        // Для простоты используем AABB тела
-        float halfWidth = body.width / 2.0f;
-        float halfHeight = body.height / 2.0f;
+        float halfWidth = body->width / 2.0f;
+        float halfHeight = body->height / 2.0f;
         
-        // Вычисляем AABB тела
-        float bodyMinX = body.position.x - halfWidth;
-        float bodyMaxX = body.position.x + halfWidth;
-        float bodyMinY = body.position.y - halfHeight;
-        float bodyMaxY = body.position.y + halfHeight;
+        float bodyMinX = body->position.x - halfWidth;
+        float bodyMaxX = body->position.x + halfWidth;
+        float bodyMinY = body->position.y - halfHeight;
+        float bodyMaxY = body->position.y + halfHeight;
         
-        // Проверяем пересечение AABB тела с заданной областью
         if (bodyMaxX >= min.x && bodyMinX <= max.x &&
             bodyMaxY >= min.y && bodyMinY <= max.y) {
-            result.push_back(&body);
+            result.push_back(body);
         }
     }
     
@@ -398,119 +376,71 @@ std::vector<PhysicsBody*> PhysicsEngine::getBodiesInArea(const Vector2& min, con
 
 // Применение заклинания (изменение физических свойств блоков)
 void PhysicsEngine::applySpell(const std::string& spellType, const std::vector<std::string>& targetBlockIds) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    
-    // Применяем заклинание к каждому блоку
-    for (const auto& id : targetBlockIds) {
-        auto it = m_bodies.find(id);
+    for (const auto& blockId : targetBlockIds) {
+        auto it = m_bodies.find(blockId);
         if (it != m_bodies.end()) {
-            PhysicsBody& body = it->second;
-            
+            PhysicsBody* body = it->second.get();
+            // Применяем заклинание к телу
             if (spellType == "heavy") {
-                // Увеличиваем массу блока
-                body.mass *= 2.0f;
-                body.material = MaterialType::HEAVY;
-                body.updateMassData();
+                body->mass *= 2.0f;
+            } else if (spellType == "light") {
+                body->mass *= 0.5f;
+            } else if (spellType == "slippery") {
+                body->friction *= 0.5f;
+            } else if (spellType == "sticky") {
+                body->friction *= 2.0f;
+            } else if (spellType == "bouncy") {
+                body->restitution *= 2.0f;
             }
-            else if (spellType == "light") {
-                // Уменьшаем массу блока
-                body.mass *= 0.5f;
-                body.material = MaterialType::LIGHT;
-                body.updateMassData();
-            }
-            else if (spellType == "slippery") {
-                // Уменьшаем трение
-                body.friction *= 0.2f;
-                body.material = MaterialType::SLIPPERY;
-            }
-            else if (spellType == "sticky") {
-                // Увеличиваем трение
-                body.friction *= 2.0f;
-                body.material = MaterialType::STICKY;
-            }
-            else if (spellType == "bouncy") {
-                // Увеличиваем упругость
-                body.restitution = 0.9f;
-                body.material = MaterialType::BOUNCY;
-            }
-            else if (spellType == "normal") {
-                // Возвращаем нормальные свойства
-                body.mass = 1.0f;
-                body.friction = 0.3f;
-                body.restitution = 0.5f;
-                body.material = MaterialType::NORMAL;
-                body.updateMassData();
-            }
-            else if (spellType == "impulse_up") {
-                // Применяем импульс вверх
-                body.applyImpulse(Vector2(0.0f, 10.0f), body.position);
-            }
-            else if (spellType == "impulse_down") {
-                // Применяем импульс вниз
-                body.applyImpulse(Vector2(0.0f, -5.0f), body.position);
-            }
-            else if (spellType == "impulse_left") {
-                // Применяем импульс влево
-                body.applyImpulse(Vector2(-5.0f, 0.0f), body.position);
-            }
-            else if (spellType == "impulse_right") {
-                // Применяем импульс вправо
-                body.applyImpulse(Vector2(5.0f, 0.0f), body.position);
-            }
-            else if (spellType == "rotate_cw") {
-                // Применяем вращение по часовой стрелке
-                body.angularVelocity += 2.0f;
-            }
-            else if (spellType == "rotate_ccw") {
-                // Применяем вращение против часовой стрелки
-                body.angularVelocity -= 2.0f;
-            }
+            body->updateMassData();
         }
     }
 }
 
 // Экспорт состояния физики в JSON
-std::string PhysicsEngine::exportStateToJson() {
+std::string PhysicsEngine::exportStateToJson() const {
     std::lock_guard<std::mutex> lock(m_mutex);
     
-    std::stringstream ss;
-    ss << "{\n";
+    nlohmann::json j;
     
-    // Экспорт гравитации
-    ss << "  \"gravity\": {\"x\": " << m_gravity.x << ", \"y\": " << m_gravity.y << "},\n";
-    
-    // Экспорт тел
-    ss << "  \"bodies\": [\n";
-    
-    bool firstBody = true;
-    for (const auto& pair : m_bodies) {
-        const PhysicsBody& body = pair.second;
+    // Сериализация тел
+    nlohmann::json bodiesJson = nlohmann::json::array();
+    for (const auto& [id, body] : m_bodies) {
+        nlohmann::json bodyJson;
+        bodyJson["id"] = body->id;
+        bodyJson["position"] = {{"x", body->position.x}, {"y", body->position.y}};
+        bodyJson["velocity"] = {{"x", body->velocity.x}, {"y", body->velocity.y}};
+        bodyJson["force"] = {{"x", body->force.x}, {"y", body->force.y}};
+        bodyJson["rotation"] = body->rotation;
+        bodyJson["angularVelocity"] = body->angularVelocity;
+        bodyJson["torque"] = body->torque;
+        bodyJson["mass"] = body->mass;
+        bodyJson["inverseMass"] = body->inverseMass;
+        bodyJson["inertia"] = body->inertia;
+        bodyJson["inverseInertia"] = body->inverseInertia;
+        bodyJson["restitution"] = body->restitution;
+        bodyJson["friction"] = body->friction;
+        bodyJson["isStatic"] = body->isStatic;
+        bodyJson["isActive"] = body->isActive;
+        bodyJson["material"] = static_cast<int>(body->material);
+        bodyJson["width"] = body->width;
+        bodyJson["height"] = body->height;
         
-        if (!firstBody) {
-            ss << ",\n";
-        }
-        firstBody = false;
-        
-        ss << "    {\n";
-        ss << "      \"id\": \"" << body.id << "\",\n";
-        ss << "      \"position\": {\"x\": " << body.position.x << ", \"y\": " << body.position.y << "},\n";
-        ss << "      \"velocity\": {\"x\": " << body.velocity.x << ", \"y\": " << body.velocity.y << "},\n";
-        ss << "      \"rotation\": " << body.rotation << ",\n";
-        ss << "      \"angularVelocity\": " << body.angularVelocity << ",\n";
-        ss << "      \"width\": " << body.width << ",\n";
-        ss << "      \"height\": " << body.height << ",\n";
-        ss << "      \"mass\": " << body.mass << ",\n";
-        ss << "      \"restitution\": " << body.restitution << ",\n";
-        ss << "      \"friction\": " << body.friction << ",\n";
-        ss << "      \"isStatic\": " << (body.isStatic ? "true" : "false") << ",\n";
-        ss << "      \"material\": " << static_cast<int>(body.material) << "\n";
-        ss << "    }";
+        bodiesJson.push_back(bodyJson);
     }
+    j["bodies"] = bodiesJson;
     
-    ss << "\n  ]\n";
-    ss << "}\n";
+    // Сериализация гравитации
+    j["gravity"] = {{"x", m_gravity.x}, {"y", m_gravity.y}};
     
-    return ss.str();
+    // Сериализация настроек
+    j["timeStep"] = m_timeStep;
+    j["velocityIterations"] = m_velocityIterations;
+    j["positionIterations"] = m_positionIterations;
+    j["isRunning"] = m_isRunning;
+    j["isPaused"] = m_isPaused;
+    
+    return j.dump();
 }
 
 // Импорт состояния физики из JSON
@@ -636,34 +566,22 @@ void PhysicsEngine::resolveCollisions() {
 // Интеграция физики
 void PhysicsEngine::integrate(float deltaTime) {
     for (auto& pair : m_bodies) {
-        PhysicsBody& body = pair.second;
-        
-        // Пропускаем статические тела
-        if (body.isStatic || !body.isActive) {
+        PhysicsBody* body = pair.second.get();
+        if (!body->isActive || body->isStatic) {
             continue;
         }
         
-        // Применяем гравитацию
-        body.applyForce(m_gravity * body.mass);
+        // Интегрируем скорость
+        body->velocity = body->velocity + (body->force * body->inverseMass + m_gravity) * deltaTime;
+        body->angularVelocity += body->torque * body->inverseInertia * deltaTime;
         
-        // Интегрирование скорости
-        body.velocity = body.velocity + body.force * body.inverseMass * deltaTime;
-        body.angularVelocity += body.torque * body.inverseInertia * deltaTime;
+        // Интегрируем позицию
+        body->position = body->position + body->velocity * deltaTime;
+        body->rotation += body->angularVelocity * deltaTime;
         
-        // Затухание скорости
-        const float linearDamping = 0.98f;
-        const float angularDamping = 0.98f;
-        
-        body.velocity = body.velocity * linearDamping;
-        body.angularVelocity *= angularDamping;
-        
-        // Интегрирование позиции
-        body.position = body.position + body.velocity * deltaTime;
-        body.rotation += body.angularVelocity * deltaTime;
-        
-        // Сброс сил и моментов
-        body.force = Vector2(0.0f, 0.0f);
-        body.torque = 0.0f;
+        // Сбрасываем силы
+        body->force = Vector2();
+        body->torque = 0.0f;
     }
 }
 
@@ -841,6 +759,149 @@ void PhysicsEngine::simulationThread() {
         
         // Пауза для снижения нагрузки на CPU
         std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60 FPS
+    }
+}
+
+int PhysicsEngine::findClosestBody(const Vector2& point, float maxDistance) {
+    float minDist = maxDistance;
+    int closestId = -1;
+    
+    for (const auto& [id, body] : m_bodies) {
+        if (!body->isActive) continue;
+        
+        float dist = (body->position - point).length();
+        if (dist < minDist) {
+            minDist = dist;
+            closestId = std::stoi(id);
+        }
+    }
+    
+    return closestId;
+}
+
+void PhysicsEngine::applyExplosion(const Vector2& center, float radius, float force) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
+    for (auto& [id, body] : m_bodies) {
+        Vector2 direction = body->position - center;
+        float distance = direction.length();
+        
+        if (distance <= radius) {
+            float strength = force * (1.0f - distance / radius);
+            direction = direction.normalized();
+            body->applyForce(direction * strength);
+        }
+    }
+}
+
+void PhysicsEngine::applyWind(const Vector2& direction, float strength) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
+    Vector2 normalizedDir = direction.normalized();
+    
+    for (auto& [id, body] : m_bodies) {
+        body->applyForce(normalizedDir * strength);
+    }
+}
+
+std::string PhysicsEngine::serializeToJson() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
+    nlohmann::json j;
+    
+    // Сериализация тел
+    nlohmann::json bodiesJson = nlohmann::json::array();
+    for (const auto& [id, body] : m_bodies) {
+        nlohmann::json bodyJson;
+        bodyJson["id"] = body->id;
+        bodyJson["position"] = {{"x", body->position.x}, {"y", body->position.y}};
+        bodyJson["velocity"] = {{"x", body->velocity.x}, {"y", body->velocity.y}};
+        bodyJson["force"] = {{"x", body->force.x}, {"y", body->force.y}};
+        bodyJson["rotation"] = body->rotation;
+        bodyJson["angularVelocity"] = body->angularVelocity;
+        bodyJson["torque"] = body->torque;
+        bodyJson["mass"] = body->mass;
+        bodyJson["inverseMass"] = body->inverseMass;
+        bodyJson["inertia"] = body->inertia;
+        bodyJson["inverseInertia"] = body->inverseInertia;
+        bodyJson["restitution"] = body->restitution;
+        bodyJson["friction"] = body->friction;
+        bodyJson["isStatic"] = body->isStatic;
+        bodyJson["isActive"] = body->isActive;
+        bodyJson["material"] = static_cast<int>(body->material);
+        bodyJson["width"] = body->width;
+        bodyJson["height"] = body->height;
+        
+        bodiesJson.push_back(bodyJson);
+    }
+    j["bodies"] = bodiesJson;
+    
+    // Сериализация гравитации
+    j["gravity"] = {{"x", m_gravity.x}, {"y", m_gravity.y}};
+    
+    // Сериализация настроек
+    j["timeStep"] = m_timeStep;
+    j["velocityIterations"] = m_velocityIterations;
+    j["positionIterations"] = m_positionIterations;
+    j["isRunning"] = m_isRunning;
+    j["isPaused"] = m_isPaused;
+    
+    return j.dump();
+}
+
+bool PhysicsEngine::deserializeFromJson(const std::string& jsonStr) {
+    try {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        
+        auto j = nlohmann::json::parse(jsonStr);
+        
+        // Очистка текущего состояния
+        m_bodies.clear();
+        m_contacts.clear();
+        
+        // Десериализация тел
+        for (const auto& bodyJson : j["bodies"]) {
+            PhysicsBody body;
+            body.id = bodyJson["id"];
+            body.position.x = bodyJson["position"]["x"];
+            body.position.y = bodyJson["position"]["y"];
+            body.velocity.x = bodyJson["velocity"]["x"];
+            body.velocity.y = bodyJson["velocity"]["y"];
+            body.force.x = bodyJson["force"]["x"];
+            body.force.y = bodyJson["force"]["y"];
+            body.rotation = bodyJson["rotation"];
+            body.angularVelocity = bodyJson["angularVelocity"];
+            body.torque = bodyJson["torque"];
+            body.mass = bodyJson["mass"];
+            body.inverseMass = bodyJson["inverseMass"];
+            body.inertia = bodyJson["inertia"];
+            body.inverseInertia = bodyJson["inverseInertia"];
+            body.restitution = bodyJson["restitution"];
+            body.friction = bodyJson["friction"];
+            body.isStatic = bodyJson["isStatic"];
+            body.isActive = bodyJson["isActive"];
+            body.material = static_cast<MaterialType>(bodyJson["material"].get<int>());
+            body.width = bodyJson["width"];
+            body.height = bodyJson["height"];
+            
+            m_bodies[body.id] = std::make_unique<PhysicsBody>(body);
+        }
+        
+        // Десериализация гравитации
+        m_gravity.x = j["gravity"]["x"];
+        m_gravity.y = j["gravity"]["y"];
+        
+        // Десериализация настроек
+        m_timeStep = j["timeStep"];
+        m_velocityIterations = j["velocityIterations"];
+        m_positionIterations = j["positionIterations"];
+        m_isRunning = j["isRunning"];
+        m_isPaused = j["isPaused"];
+        
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "Error deserializing state: " << e.what() << std::endl;
+        return false;
     }
 }
 

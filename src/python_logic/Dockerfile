@@ -7,7 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ARG HTTP_LIB_VER=v0.15.4            # при желании зафиксируйте версию
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        build-essential g++ cmake make curl && \
+        build-essential g++ cmake make curl ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build

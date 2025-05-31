@@ -1,12 +1,11 @@
-from dataclasses import dataclass
 from typing import Optional
 import os
 from dotenv import load_dotenv
+from pydantic_settings import BaseSettings
 
 load_dotenv()
 
-@dataclass
-class AnalyticsConfig:
+class AnalyticsConfig(BaseSettings):
     """Конфигурация аналитической системы"""
     
     # Настройки базы данных
