@@ -127,7 +127,7 @@ build_typescript_client() {
 build_cpp_physics() {
     echo -e "${BLUE}Building C++ Physics Engine...${NC}"
     
-    PHYSICS_DIR="${PROJECT_ROOT}/src/cpp_physics"
+    PHYSICS_DIR="${PROJECT_ROOT}/src/python_logic/cpp-physics"
     
     cd "${PHYSICS_DIR}"
     mkdir -p build
@@ -375,7 +375,7 @@ run_tests() {
     
     # Запуск тестов C++ физического движка
     echo "Running C++ Physics Engine tests..."
-    cd "${PROJECT_ROOT}/src/cpp_physics"
+    cd "${PROJECT_ROOT}/src/python_logic/cpp-physics"
     cd build
     ctest
     

@@ -1,5 +1,5 @@
 # Игнорируем локальные билды C++ компонента
-src/cpp_physics/build
+src/python_logic/cpp-physics/build
 
 # Игнорируем локальные билды
 **/__pycache__

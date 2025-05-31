@@ -149,7 +149,7 @@ start_typescript_client() {
 start_cpp_physics() {
     echo -e "${BLUE}Starting C++ Physics Engine...${NC}"
     
-    cd "${PROJECT_ROOT}/src/cpp_physics/build"
+    cd "${PROJECT_ROOT}/src/python_logic/cpp-physics/build"
     ./physics_engine > "${LOG_DIR}/cpp_physics.log" 2>&1 &
     
     echo -e "${GREEN}C++ Physics Engine started.${NC}"

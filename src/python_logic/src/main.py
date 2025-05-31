@@ -981,7 +981,16 @@ class PhysicsEngine:
     """Интерфейс для работы с C++ физическим движком."""
     
     def __init__(self):
-        self._lib = None
+        # Get absolute path to the library
+        base_path = os.path.dirname(os.path.abspath(__file__))
+        lib_path = os.path.join(os.path.dirname(base_path), "libphysics.so")
+        
+        try:
+            self._lib = ctypes.CDLL(lib_path)
+        except OSError as e:
+            logger.error(f"Failed to load physics library from {lib_path}: {e}")
+            raise RuntimeError("Physics library not found") from e
+        
         self._initialized = False
         self._block_count = 0
         self._error_count = 0
@@ -1019,17 +1028,6 @@ class PhysicsEngine:
                     ("normal", Vec2),
                     ("depth", ctypes.c_float)
                 ]
-            
-            # Загрузка библиотеки
-            try:
-                self._lib = ctypes.CDLL("./libphysics.so")
-            except OSError:
-                # Попытка загрузить библиотеку из альтернативного пути
-                try:
-                    self._lib = ctypes.CDLL("./build/libphysics.so")
-                except OSError as e:
-                    logger.error(f"Failed to load physics library: {e}")
-                    raise RuntimeError("Physics library not found")
             
             # Настройка типов возвращаемых значений
             self._lib.init_physics.restype = ctypes.c_bool
