@@ -5,19 +5,19 @@ from pydantic_settings import BaseSettings
 
 load_dotenv()
 
-class AnalyticsConfig(BaseSettings):
+class Settings(BaseSettings):
     """Конфигурация аналитической системы"""
     
+    # Настройки сервера
+    server_host: str = os.getenv("SERVER_HOST", "0.0.0.0")
+    server_port: int = int(os.getenv("SERVER_PORT", "8001"))
+    
     # Настройки базы данных
-    db_host: str = os.getenv("DB_HOST", "localhost")
+    db_host: str = os.getenv("DB_HOST", "postgres")
     db_port: int = int(os.getenv("DB_PORT", "5432"))
     db_name: str = os.getenv("DB_NAME", "tetris_analytics")
     db_user: str = os.getenv("DB_USER", "postgres")
     db_password: str = os.getenv("DB_PASSWORD", "postgres")
-    
-    # Настройки API
-    api_host: str = os.getenv("API_HOST", "0.0.0.0")
-    api_port: int = int(os.getenv("API_PORT", "8082"))
     
     # Настройки логирования
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
@@ -41,4 +41,4 @@ class AnalyticsConfig(BaseSettings):
     
     def get_api_url(self) -> str:
         """Получить URL для API"""
-        return f"http://{self.api_host}:{self.api_port}" 
+        return f"http://{self.server_host}:{self.server_port}" 

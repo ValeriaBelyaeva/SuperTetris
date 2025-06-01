@@ -1,26 +1,33 @@
-# Use Python 3.11 slim image as base
+# Используем Python 3.11 slim в качестве базового образа
 FROM python:3.11-slim
 
-# Системные зависимости (при необходимости, добавить дополнительные)
+# Устанавливаем системные зависимости
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      build-essential \
-      gcc \
-      g++ \
+    build-essential \
+    gcc \
+    g++ \
+    libsnappy-dev \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Устанавливаем рабочую директорию
 WORKDIR /app
+
+# Устанавливаем переменные окружения
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
-# Копируем только requirements.txt для кэширующих слоёв
-COPY requirements.txt ./
+# Копируем requirements.txt для кэширования слоев
+COPY src/python_server/requirements.txt ./
+
+# Устанавливаем зависимости Python
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копируем остальной исходный код
-COPY . .
+# Копируем исходный код приложения
+COPY src/python_server/src/ /app/
 
-# Expose port
+# Открываем порт
 EXPOSE 8000
 
-# Run the FastAPI application
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"] 
+# Запускаем FastAPI приложение
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"] 

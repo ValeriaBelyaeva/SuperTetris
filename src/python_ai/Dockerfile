@@ -8,6 +8,7 @@ WORKDIR /build
 RUN apt-get update && apt-get install -y \
     cmake \
     curl \
+    nlohmann-json3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Download and install httplib.h
@@ -16,7 +17,7 @@ RUN mkdir -p /usr/local/include/httplib && \
     -o /usr/local/include/httplib/httplib.h
 
 # Copy and build cpp-physics
-COPY cpp-physics ./cpp-physics
+COPY src/python_logic/cpp-physics ./cpp-physics
 RUN mkdir cpp-physics/build && cd cpp-physics/build && cmake .. && make
 
 # Stage 2: Python service
@@ -24,23 +25,35 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
-    libsnappy-dev \
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      build-essential \
+      gcc \
+      g++ \
+      libsnappy-dev \
+      curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Create necessary directories
+RUN mkdir -p /app/models /app/training_data
+
 # Copy requirements first to leverage Docker cache
-COPY src/python_ai/requirements.txt .
+COPY src/python_ai/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application
-COPY src/python_ai/ .
+COPY src/python_ai/src/ /app/src/
 
 # Copy the physics library from the builder stage
 COPY --from=cpp-physics-builder /build/cpp-physics/build/libphysics_engine.so /app/
 
 # Set environment variables
+ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 ENV LD_LIBRARY_PATH=/app
 
 # Run the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
+
+# Open port
+EXPOSE 8001

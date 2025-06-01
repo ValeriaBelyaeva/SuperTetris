@@ -14,7 +14,7 @@ import torch.optim as optim
 import torch.cuda
 import torch.utils.data
 from typing import List, Dict, Any, Optional, Tuple
-from .models import (
+from src.models import (
     GameState,
     Action,
     AIPlayer,
@@ -22,7 +22,7 @@ from .models import (
     NeuralNetAIPlayer,
     ReinforcementLearningAIPlayer
 )
-from .constants import *
+from src.constants import *
 
 # Настройка логирования
 logging.basicConfig(

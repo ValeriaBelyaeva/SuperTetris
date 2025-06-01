@@ -111,8 +111,8 @@ DECISION_FREQUENCY: Final[int] = 5  # Decision making frequency (in frames)
 assert DECISION_FREQUENCY > 0, "Decision frequency must be positive"
 
 # ===== Path Constants =====
-MODEL_SAVE_PATH: Final[str] = os.path.join(os.path.dirname(__file__), "..", "models")
-TRAINING_DATA_PATH: Final[str] = os.path.join(os.path.dirname(__file__), "..", "training_data")
+MODEL_SAVE_PATH: Final[str] = "/app/models"
+TRAINING_DATA_PATH: Final[str] = "/app/training_data"
 
 # Create directories if they don't exist
 os.makedirs(MODEL_SAVE_PATH, exist_ok=True)

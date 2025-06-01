@@ -1,60 +1,49 @@
-#include "PhysicsEngine.h"
+#include "include/PhysicsEngine.h"
 #include <httplib.h>
-#include <iostream>
+#include <memory>
 #include <thread>
+#include <iostream>
 #include <chrono>
-#include <nlohmann/json.hpp>
-
-using namespace TetrisTowers;
-using json = nlohmann::json;
 
 int main() {
-    std::cout << "Starting physics server..." << std::endl;
+    using namespace TetrisTowers;
     
-    // Initialize physics engine
-    PhysicsEngine engine;
-    if (!engine.initialize()) {
-        std::cerr << "Failed to initialize physics engine" << std::endl;
-        return 1;
-    }
+    auto engine = std::make_unique<PhysicsEngine>();
     
-    // Create HTTP server
+    // Создаем HTTP сервер
     httplib::Server svr;
     
-    // Health check endpoint
+    // Эндпоинт для проверки здоровья
     svr.Get("/health", [](const httplib::Request&, httplib::Response& res) {
         res.set_content("OK", "text/plain");
     });
     
-    // Get physics state
+    // Эндпоинт для получения состояния
     svr.Get("/state", [&engine](const httplib::Request&, httplib::Response& res) {
-        std::string state = engine.serializeToJson();
-        res.set_content(state, "application/json");
+        res.set_content(engine->exportStateToJson(), "application/json");
     });
     
-    // Update physics state
+    // Эндпоинт для установки состояния
     svr.Post("/state", [&engine](const httplib::Request& req, httplib::Response& res) {
-        bool success = engine.deserializeFromJson(req.body);
-        if (success) {
-            res.set_content("{\"status\":\"success\"}", "application/json");
+        if (engine->importStateFromJson(req.body)) {
+            res.set_content("OK", "text/plain");
         } else {
             res.status = 400;
-            res.set_content("{\"status\":\"error\",\"message\":\"Invalid state format\"}", "application/json");
+            res.set_content("Invalid state", "text/plain");
         }
     });
     
-    // Start server in a separate thread
+    // Запускаем сервер в отдельном потоке
     std::thread server_thread([&svr]() {
         if (!svr.listen("0.0.0.0", 9000)) {
             std::cerr << "Failed to start server" << std::endl;
         }
     });
     
-    // Main physics update loop
-    constexpr float fixedDelta = 1.0f / 60.0f; // Fixed time step of 1/60 second
+    // Основной цикл обновления физики
     while (true) {
-        engine.update(fixedDelta);
-        std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60 FPS
+        engine->update(1.0f / 60.0f);
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
     }
     
     return 0;

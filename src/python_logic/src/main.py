@@ -29,9 +29,23 @@ from enum import Enum, auto
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 from pydantic import BaseModel, Field
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 # Configure logging
 logger.add("tetris_towers_logic.log", rotation="1 day", retention="7 days")
+
+# Create FastAPI app
+app = FastAPI(title="Tetris Towers Logic Service")
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Game constants
 class GameConstants:
@@ -1037,8 +1051,6 @@ class PhysicsEngine:
                     ("depth", ctypes.c_float)
                 ]
             
-<<<<<<< HEAD
-=======
             # Загрузка библиотеки
             try:
                 self._lib = ctypes.CDLL("./libphysics_engine.so")
@@ -1050,7 +1062,6 @@ class PhysicsEngine:
                     logger.error(f"Failed to load physics library: {e}")
                     raise RuntimeError("Physics library not found")
             
->>>>>>> origin/fixing-docker
             # Настройка типов возвращаемых значений
             self._lib.physics_engine_create.restype = ctypes.c_void_p
             self._lib.physics_engine_destroy.argtypes = [ctypes.c_void_p]
@@ -2290,3 +2301,122 @@ if __name__ == "__main__":
     
     # Print final game state
     print(json.dumps(game.get_game_state(), indent=2))
+
+# Create global game server instance
+server = GameServer()
+
+# API endpoints
+@app.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "healthy"}
+
+@app.post("/games")
+async def create_game(game_mode: str = "survival"):
+    """Create a new game."""
+    try:
+        mode = GameMode[game_mode.upper()]
+        game_id = server.create_game(mode)
+        return {"game_id": game_id}
+    except KeyError:
+        raise HTTPException(status_code=400, detail=f"Invalid game mode: {game_mode}")
+
+@app.get("/games")
+async def list_games():
+    """List all games."""
+    return server.get_all_games()
+
+@app.get("/games/{game_id}")
+async def get_game(game_id: str):
+    """Get game state."""
+    game = server.get_game(game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    return game.get_game_state()
+
+@app.post("/games/{game_id}/players")
+async def add_player(game_id: str, name: str, is_ai: bool = False, ai_difficulty: Optional[str] = None):
+    """Add a player to the game."""
+    game = server.get_game(game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    try:
+        player_id = game.add_player(name, is_ai, ai_difficulty)
+        return {"player_id": player_id}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/games/{game_id}/start")
+async def start_game(game_id: str):
+    """Start the game."""
+    game = server.get_game(game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    if not game.start_game():
+        raise HTTPException(status_code=400, detail="Cannot start game")
+    return {"status": "started"}
+
+@app.post("/games/{game_id}/players/{player_id}/ready")
+async def set_player_ready(game_id: str, player_id: str, ready: bool = True):
+    """Set player ready state."""
+    game = server.get_game(game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    if not game.set_player_ready(player_id, ready):
+        raise HTTPException(status_code=400, detail="Cannot set player ready state")
+    return {"status": "ready" if ready else "waiting"}
+
+@app.post("/games/{game_id}/players/{player_id}/move")
+async def move_block(game_id: str, player_id: str, direction: str):
+    """Move player's current block."""
+    game = server.get_game(game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    try:
+        direction_enum = Direction[direction.upper()]
+        if not game.move_block(player_id, direction_enum):
+            raise HTTPException(status_code=400, detail="Cannot move block")
+        return {"status": "moved"}
+    except KeyError:
+        raise HTTPException(status_code=400, detail=f"Invalid direction: {direction}")
+
+@app.post("/games/{game_id}/players/{player_id}/rotate")
+async def rotate_block(game_id: str, player_id: str, clockwise: bool = True):
+    """Rotate player's current block."""
+    game = server.get_game(game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    if not game.rotate_block(player_id, clockwise):
+        raise HTTPException(status_code=400, detail="Cannot rotate block")
+    return {"status": "rotated"}
+
+@app.post("/games/{game_id}/players/{player_id}/drop")
+async def drop_block(game_id: str, player_id: str, hard_drop: bool = False):
+    """Drop player's current block."""
+    game = server.get_game(game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    if not game.drop_block(player_id, hard_drop):
+        raise HTTPException(status_code=400, detail="Cannot drop block")
+    return {"status": "dropped"}
+
+@app.post("/games/{game_id}/players/{player_id}/spells/{spell_id}/cast")
+async def cast_spell(game_id: str, player_id: str, spell_id: str, target_id: str):
+    """Cast a spell."""
+    game = server.get_game(game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    if not game.cast_spell(player_id, spell_id, target_id):
+        raise HTTPException(status_code=400, detail="Cannot cast spell")
+    return {"status": "cast"}
+
+@app.get("/games/{game_id}/players/{player_id}")
+async def get_player_state(game_id: str, player_id: str):
+    """Get player state."""
+    game = server.get_game(game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    state = game.get_player_state(player_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Player not found")
+    return state

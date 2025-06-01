@@ -1,36 +1,35 @@
-# Use Python 3.11 slim image as base
+# Используем Python 3.11 slim в качестве базового образа
 FROM python:3.11-slim
 
-# Установить системные зависимости (в том числе libsnappy-dev)
+# Устанавливаем системные зависимости
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       build-essential \
       gcc \
       g++ \
       libsnappy-dev \
+      libpq-dev \
+      postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
+# Устанавливаем рабочую директорию
 WORKDIR /app
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH=/app/src
 
-# Сначала копируем только requirements.txt, чтобы кэш слоёв работал эффективнее
-COPY requirements.txt ./
+# Устанавливаем переменные окружения
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+
+# Копируем requirements.txt для кэширования слоев
+COPY src/python_analytics/requirements.txt ./
+
+# Устанавливаем зависимости Python
 RUN pip install --no-cache-dir -r requirements.txt
 
-<<<<<<< HEAD
-# Copy source code
-=======
-# Теперь копируем весь исходный код
->>>>>>> origin/fixing-docker
-COPY . .
+# Копируем исходный код приложения
+COPY src/python_analytics/ /app/python_analytics/
 
-# Expose port
+# Открываем порт
 EXPOSE 8001
 
-# Run the FastAPI application
-<<<<<<< HEAD
-CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8001"] 
-=======
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"] 
->>>>>>> origin/fixing-docker
+# Запускаем FastAPI приложение
+CMD ["uvicorn", "python_analytics.src.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]

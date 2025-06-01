@@ -1,9 +1,12 @@
 cmake_minimum_required(VERSION 3.10)
-project(TetrisTowersPhysics)
+project(physics_engine)
 
-# Установка стандарта C++
+# Устанавливаем стандарт C++
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Добавляем путь к заголовочным файлам
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 # Включаем vcpkg (если переменная VCPKG_ROOT установлена)
 if(DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
@@ -14,15 +17,23 @@ endif()
 # Ищем header-only httplib.h (cpp-httplib)
 find_path(HTTPLIB_INCLUDE_DIR
   NAMES httplib.h
-  PATHS /usr/local/include/httplib /usr/local/include /usr/include
+  PATHS 
+    /usr/local/include/httplib
+    /usr/include/httplib
+    /usr/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+  NO_DEFAULT_PATH
 )
 if (NOT HTTPLIB_INCLUDE_DIR)
-  message(FATAL_ERROR "Could not find httplib.h (cpp-httplib). Make sure `/usr/local/include/httplib/httplib.h` exists.")
+  message(FATAL_ERROR "Could not find httplib.h (cpp-httplib). Make sure it is installed.")
 endif()
 include_directories(${HTTPLIB_INCLUDE_DIR})
 
 # Находим nlohmann_json
-find_package(nlohmann_json CONFIG REQUIRED)
+find_package(nlohmann_json REQUIRED)
+
+# Находим pthreads
+find_package(Threads REQUIRED)
 
 # Опции сборки
 option(BUILD_SHARED_LIBS "Build shared libraries" ON)
@@ -49,8 +60,9 @@ set(HEADERS
 )
 
 # Библиотека physics_engine
-add_library(physics_engine ${SOURCES} ${HEADERS})
+add_library(physics_engine SHARED ${SOURCES} ${HEADERS})
 target_include_directories(physics_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(physics_engine PRIVATE nlohmann_json::nlohmann_json)
 
 # Тестовый исполняемый
 if(BUILD_TESTS)
@@ -62,6 +74,7 @@ endif()
 add_executable(physics_server server.cpp)
 target_link_libraries(physics_server PRIVATE physics_engine)
 target_link_libraries(physics_server PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(physics_server PRIVATE Threads::Threads)
 
 # Установка (install)
 install(TARGETS physics_engine

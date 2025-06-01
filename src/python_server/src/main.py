@@ -1,71 +1,75 @@
-import asyncio
-import uvicorn
-from fastapi import FastAPI, WebSocket
+"""
+Main module for Tetris Server
+"""
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
-import uuid
-from typing import Dict, Set
-import uvicorn.logging
-from config import Settings
-from game.manager import GameManager
-from session.manager import SessionManager
-from network.manager import NetworkManager
-from physics.manager import PhysicsManager
-from exceptions import GameError, SessionNotFoundError, NetworkError
+import uvicorn
+from typing import Dict, Any
 
-app = FastAPI(title="Tetris Game Server")
+# Импорты из локальных модулей
+from .config import Settings
+from .game.server import GameServer
+from .network.websocket import WebSocketManager
+from .session.session_manager import SessionManager
+
+# Инициализация FastAPI приложения
+app = FastAPI(
+    title="Tetris Server",
+    description="Server for Tetris game",
+    version="1.0.0"
+)
+
+# Настройка CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Инициализация компонентов
 settings = Settings()
-
-# Инициализация менеджеров
-game_manager = GameManager()
-session_manager = SessionManager(game_manager)
-network_manager = NetworkManager(settings)
-physics_manager = PhysicsManager()
-
-# Хранение активных WebSocket соединений
-active_connections: Dict[uuid.UUID, WebSocket] = {}
+game_server = GameServer(settings)
+websocket_manager = WebSocketManager(game_server)
+session_manager = SessionManager(settings)
 
 @app.on_event("startup")
 async def startup_event():
-    logger.info("Starting server...")
-    await physics_manager.start()
-    await game_manager.start()
-    await session_manager.start()
-    await network_manager.start()
-    logger.info("Server started successfully")
+    """Инициализация сервиса при запуске"""
+    try:
+        logger.info("Starting server...")
+        await game_server.start()
+        await websocket_manager.start()
+        await session_manager.start()
+        logger.info("Server started successfully")
+    except Exception as e:
+        logger.error(f"Failed to start server: {e}")
+        raise
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    logger.info("Stopping server...")
-    await network_manager.stop()
-    await session_manager.stop()
-    await game_manager.stop()
-    await physics_manager.stop()
-    logger.info("Server stopped successfully")
-
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    connection_id = uuid.uuid4()
-    await websocket.accept()
-    active_connections[connection_id] = websocket
-    
+    """Очистка ресурсов при остановке"""
     try:
-        while True:
-            data = await websocket.receive_text()
-            await network_manager.handle_message(connection_id, data)
+        logger.info("Stopping server...")
+        await game_server.stop()
+        await websocket_manager.stop()
+        await session_manager.stop()
+        logger.info("Server stopped successfully")
     except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-    finally:
-        if connection_id in active_connections:
-            del active_connections[connection_id]
+        logger.error(f"Error during shutdown: {e}")
 
 @app.get("/health")
-async def health_check():
-    return {"status": "ok"}
+async def health_check() -> Dict[str, str]:
+    """Проверка работоспособности сервиса"""
+    return {"status": "ok", "service": "server"}
 
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
-        host=settings.server_host,
-        port=settings.server_port,
+        host="0.0.0.0",
+        port=8000,
         reload=True
     ) 
